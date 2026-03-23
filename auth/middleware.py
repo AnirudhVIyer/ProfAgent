@@ -82,10 +82,26 @@ def render_login_page():
         st.divider()
 
         st.markdown("### Sign In")
-        st.caption(
-            "Access is invite-only. "
-            "Request access from the admin to get started."
-        )
+
+        st.divider()
+        st.markdown("#### Don't have access?")
+
+        if st.button(
+            "Request Access",
+            use_container_width=True
+        ):
+            st.session_state.show_access_request = True
+            st.rerun()
+
+        # Show request form if button was clicked
+        if st.session_state.get("show_access_request"):
+            st.divider()
+            from ui.access_request import render_access_request_form
+            render_access_request_form()
+
+            if st.button("← Back to Sign In"):
+                st.session_state.show_access_request = False
+                st.rerun()
 
         with st.form("login_form"):
             email = st.text_input(

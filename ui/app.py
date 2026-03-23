@@ -32,6 +32,9 @@ from memory.knowledge_store import (
     get_store_summary,
     get_topic_depth
 )
+from ui.onboarding import render_onboarding, needs_onboarding
+from ui.access_request import render_access_request_form
+from ui.admin_panel import render_admin_panel
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -40,7 +43,7 @@ try:
     import main  # noqa — starts scheduler as side effect
 except Exception as e:
     print(f"[UI] Scheduler start failed: {e}")
-    
+
 # ------------------------------------------------------------
 # Page config
 # ------------------------------------------------------------
@@ -162,12 +165,18 @@ def render_sidebar(user: UserContext):
 
         st.divider()
 
-        # Navigation
+#        Navigation
         st.markdown("### Navigation")
         page_options = ["Dashboard", "Chat Session"]
+
+        # Admin users get an extra panel
+        if user.is_admin:
+            page_options.append("Admin Panel")
+
         current_index = page_options.index(
             st.session_state.current_page
-        )
+        ) if st.session_state.current_page in page_options else 0
+
         page = st.radio(
             "Go to",
             page_options,
@@ -541,21 +550,30 @@ def _end_session(user: UserContext):
 # ------------------------------------------------------------
 
 def main():
-    # Auth gate first
+    init_session_state()
+
     user = require_auth()
     if not user:
         st.stop()
 
-    # Init session state with user context
-    # so brief can be loaded from Supabase on first render
-    init_session_state(user)
+    if needs_onboarding(user.user_id):
+        render_onboarding(user)
+        st.stop()
 
+    init_session_state(user)
     page = render_sidebar(user)
 
     if page == "Dashboard":
         render_dashboard(user)
     elif page == "Chat Session":
         render_chat(user)
+    elif page == "Admin Panel" and user.is_admin:
+        render_admin_panel()
+    elif page == "Admin Panel" and not user.is_admin:
+        st.error("Access denied")
+
+
 
 if __name__ == "__main__":
     main()
+

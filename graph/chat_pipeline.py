@@ -22,7 +22,7 @@ from langchain_anthropic import ChatAnthropic
 from dotenv import load_dotenv
 
 from agents.teacher import teacher_agent, build_system_prompt
-from auth.rate_limiter import check_and_increment, RateLimitExceeded
+from auth.rate_limiter import check_and_increment, RateLimitExceeded, get_reset_time
 from memory.knowledge_store import (
     load_store,
     get_topic_depth,
@@ -280,12 +280,22 @@ def teacher_node(state: ChatSessionState) -> dict:
             is_admin=is_admin
         )
     except RateLimitExceeded as e:
+        from auth.rate_limiter import get_reset_time
+        reset_time = get_reset_time()
+
         print(f"[teacher] Rate limit hit: {e}")
+
+        # Inject exit phrase so memory_agent runs
+        # and session is saved before stopping
+        state["messages"] = state.get("messages", []) + [
+            HumanMessage(content="end session")
+        ]
+
         return {
             "messages": [AIMessage(
-                content="You've reached your daily limit. "
-                        "Your session has been saved. "
-                        "Come back tomorrow to continue learning!"
+                content=f"You've reached your daily limit. "
+                        f"Your session and progress are being saved now. "
+                        f"Resets in {reset_time} — see you then! 👋"
             )],
             "last_activity": datetime.now().isoformat()
         }

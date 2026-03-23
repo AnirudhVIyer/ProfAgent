@@ -197,3 +197,27 @@ def get_remaining(user_id: str, is_admin: bool = False) -> dict:
             0, limits["max_tavily_calls"] - usage.get("tavily_calls", 0)
         )
     }
+
+
+def get_reset_time() -> str:
+    """
+    Returns human readable time until daily limit reset.
+    Limits reset at midnight UTC.
+
+    Examples: "6h 23m", "45m", "23h 59m"
+    """
+    from datetime import datetime, timezone, timedelta
+
+    now = datetime.now(timezone.utc)
+    midnight = now.replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    next_midnight = midnight + timedelta(days=1)
+    diff = next_midnight - now
+
+    hours = diff.seconds // 3600
+    minutes = (diff.seconds % 3600) // 60
+
+    if hours == 0:
+        return f"{minutes}m"
+    return f"{hours}h {minutes}m"

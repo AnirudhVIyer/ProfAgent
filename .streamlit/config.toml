@@ -1,12 +1,11 @@
 # .streamlit/config.toml
-# Streamlit configuration for production
 
 [server]
 port = 8501
 address = "0.0.0.0"
 headless = true
-enableCORS = false
-enableXsrfProtection = true
+enableCORS = true
+enableXsrfProtection = false
 
 [browser]
 gatherUsageStats = false

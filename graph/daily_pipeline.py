@@ -85,18 +85,38 @@ def memory_loader(state: DailyPipelineState) -> dict:
 
 @handle_pipeline_error(fallback={"email_sent": False})
 def notifier_node(state: DailyPipelineState) -> dict:
-    """
-    Sends daily brief email.
-    """
     print("\n[notifier] Sending daily brief...")
 
     brief = state.get("daily_brief")
+    user_id = state.get("user_id")
+
     if not brief:
         print("[notifier] No brief — skipping email")
         return {"email_sent": False}
 
-    success = send_daily_brief(brief)
+    # Get user's actual email from Supabase
+    recipient_email = None
+    if user_id:
+        try:
+            from memory.supabase_client import get_admin_client
+            client = get_admin_client()
+            profile = client.table("profiles") \
+                .select("email") \
+                .eq("id", user_id) \
+                .single() \
+                .execute()
+
+            if profile.data:
+                recipient_email = profile.data["email"]
+                print(f"[notifier] Sending to {recipient_email}")
+
+        except Exception as e:
+            print(f"[notifier] Could not fetch user email: {e}")
+
+    success = send_daily_brief(brief, recipient_email=recipient_email)
     return {"email_sent": success}
+
+
 
 @handle_pipeline_error(fallback={})
 def memory_writer(state: DailyPipelineState) -> dict:
