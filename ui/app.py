@@ -39,11 +39,69 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# try:
-#     import main  # noqa — starts scheduler as side effect
-# except Exception as e:
-#     print(f"[UI] Scheduler start failed: {e}")
+# Start scheduler with delay so Streamlit starts first
+import threading
 
+def _start_scheduler_delayed():
+    """
+    Starts scheduler in background thread after 10s delay.
+    Delay ensures Streamlit is fully initialized first.
+    In production: use Railway cron jobs instead.
+    """
+    import time
+    time.sleep(10)
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        from apscheduler.triggers.cron import CronTrigger
+        from memory.supabase_client import get_admin_client
+
+        scheduler = BackgroundScheduler()
+
+        def run_for_all_users():
+            print(f"\n[Scheduler] Daily run starting...")
+            try:
+                from graph.daily_pipeline import run_daily_pipeline
+                client = get_admin_client()
+                profiles = client.table("profiles") \
+                    .select("id, email, role") \
+                    .eq("is_active", True) \
+                    .execute()
+
+                for user in (profiles.data or []):
+                    try:
+                        print(f"[Scheduler] Running for {user['email']}")
+                        run_daily_pipeline(
+                            user_id=user["id"],
+                            is_admin=user.get("role") == "admin"
+                        )
+                    except Exception as e:
+                        print(f"[Scheduler] Failed for {user['email']}: {e}")
+
+                print(f"[Scheduler] Daily run complete")
+            except Exception as e:
+                print(f"[Scheduler] Fatal error: {e}")
+
+        scheduler.add_job(
+            run_for_all_users,
+            trigger=CronTrigger(hour=9, minute=0),
+            id="daily_pipeline",
+            replace_existing=True
+        )
+
+        scheduler.start()
+        print("[Scheduler] ✓ Started — runs daily at 9am UTC")
+
+    except Exception as e:
+        print(f"[Scheduler] Failed to start: {e}")
+
+# Only start once — Streamlit reruns the script on every interaction
+if "scheduler_started" not in st.session_state:
+    st.session_state.scheduler_started = True
+    thread = threading.Thread(
+        target=_start_scheduler_delayed,
+        daemon=True
+    )
+    thread.start()
 # ------------------------------------------------------------
 # Page config
 # ------------------------------------------------------------
@@ -362,6 +420,126 @@ def render_dashboard(user: UserContext):
                         f"{', '.join(t['connected_to'])}"
                     )
 
+# ── Live Knowledge Store ────────────────────────────────
+    st.divider()
+    st.markdown("## 🔬 Live Knowledge Store")
+
+    col_refresh, col_empty = st.columns([1, 4])
+    with col_refresh:
+        if st.button("🔄 Refresh", use_container_width=True):
+            st.rerun()
+
+    store = load_store(user_id=user.user_id)
+    topics = store.get("topics", [])
+
+    if not topics:
+        st.info("No topics yet — run the pipeline or complete onboarding")
+        return
+
+    # Search filter
+    search = st.text_input(
+        "🔍 Filter topics",
+        placeholder="Search your knowledge store..."
+    )
+
+    filtered = [
+        t for t in topics
+        if not search or search.lower() in t["topic"].lower()
+    ]
+
+    # Sort options
+    sort_by = st.selectbox(
+        "Sort by",
+        ["Date learned", "Confidence", "Topic name"],
+        label_visibility="collapsed"
+    )
+
+    if sort_by == "Date learned":
+        filtered = sorted(
+            filtered,
+            key=lambda t: t.get("date_learned", ""),
+            reverse=True
+        )
+    elif sort_by == "Confidence":
+        conf_order = {"high": 0, "medium": 1, "low": 2}
+        filtered = sorted(
+            filtered,
+            key=lambda t: conf_order.get(t["confidence"], 3)
+        )
+    elif sort_by == "Topic name":
+        filtered = sorted(
+            filtered,
+            key=lambda t: t["topic"].lower()
+        )
+
+    st.caption(f"Showing {len(filtered)} of {len(topics)} topics")
+    st.markdown("")
+
+    # Render each topic
+    for topic in filtered:
+        confidence = topic.get("confidence", "low")
+        conf_icon = {
+            "high": "🟢",
+            "medium": "🟡",
+            "low": "🔴"
+        }.get(confidence, "⚪")
+
+        date = topic.get("date_learned", "")[:10]
+        source = topic.get("source", "")
+
+        # Get sub-concept depth
+        depth = get_topic_depth(
+            topic["topic"],
+            user_id=user.user_id,
+            store=store
+        )
+
+        known_count = depth["known_count"] if depth else 0
+        gap_count = depth["gap_count"] if depth else 0
+
+        # Build expander label
+        label = (
+            f"{conf_icon} **{topic['topic']}** "
+            f"— {confidence} confidence"
+        )
+        if known_count or gap_count:
+            label += f" — {known_count} known, {gap_count} gaps"
+
+        with st.expander(label):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.caption(f"📅 Learned: {date}")
+            with col2:
+                st.caption(f"📌 Source: {source}")
+            with col3:
+                if topic.get("connected_to"):
+                    st.caption(
+                        f"🔗 Connected: "
+                        f"{', '.join(topic['connected_to'][:3])}"
+                    )
+
+            if depth:
+                if depth["known"]:
+                    st.markdown("**✓ Known sub-concepts:**")
+                    for k in depth["known"]:
+                        st.markdown(
+                            f"- {k['name']} "
+                            f"({k['confidence']}) "
+                            f"— {k['notes']}"
+                        )
+
+                if depth["gaps"]:
+                    st.markdown("**⚠ Gaps:**")
+                    for g in depth["gaps"]:
+                        st.markdown(f"- {g}")
+
+            if not depth or (
+                not depth["known"] and not depth["gaps"]
+            ):
+                st.caption(
+                    "No sub-concept detail yet — "
+                    "start a chat session to build depth"
+                )
 
 # ------------------------------------------------------------
 # Chat
