@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+*.pyc
+.env
+memory/knowledge_store.json
+.streamlit/secrets.toml
+*.egg-info/
+dist/
+build/
+.pytest_cache/

@@ -1,0 +1,27 @@
+# Core
+anthropic>=0.40.0
+langchain-anthropic>=0.3.0
+langchain-core>=0.3.0
+langgraph>=0.2.0
+
+# Search
+tavily-python>=0.5.0
+
+# Database
+supabase>=2.0.0
+
+# Embeddings
+cohere>=5.0.0
+
+# UI
+streamlit>=1.40.0
+
+# Scheduling
+apscheduler>=3.10.0
+
+# Utilities
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+
+# Email
+# smtplib is built into Python — no install needed

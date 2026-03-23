@@ -1,0 +1,13 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+.git/
+.gitignore
+*.md
+memory/knowledge_store.json
+.pytest_cache/
+*.egg-info/
+dist/
+build/

@@ -1,0 +1,19 @@
+# railway.toml
+# ------------------------------------------------------------
+# Railway deployment configuration.
+# Tells Railway how to build and run the container.
+# ------------------------------------------------------------
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "streamlit run ui/app.py --server.port=8501 --server.address=0.0.0.0"
+healthcheckPath = "/_stcore/health"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+[[services]]
+name = "sage-app"
