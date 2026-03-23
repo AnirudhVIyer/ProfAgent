@@ -19,12 +19,14 @@ from agents.researcher import researcher_agent, ResearcherOutput
 from agents.curator import curator_agent, ChosenTopic
 from agents.briefing import briefing_agent, DailyBrief
 from auth.rate_limiter import check_and_increment, RateLimitExceeded
+
 from memory.knowledge_store import (
     load_store,
     increment_sessions,
     get_known_topics,
     add_topic
 )
+from memory.supabase_client import get_admin_client
 from notifications.gmail import send_daily_brief
 from dotenv import load_dotenv
 from errors.handler import handle_pipeline_error
@@ -91,14 +93,13 @@ def notifier_node(state: DailyPipelineState) -> dict:
     user_id = state.get("user_id")
 
     if not brief:
-        print("[notifier] No brief — skipping email")
+        print("[notifier] No brief in state — skipping")
         return {"email_sent": False}
 
     # Get user's actual email from Supabase
     recipient_email = None
     if user_id:
         try:
-            from memory.supabase_client import get_admin_client
             client = get_admin_client()
             profile = client.table("profiles") \
                 .select("email") \
@@ -108,10 +109,21 @@ def notifier_node(state: DailyPipelineState) -> dict:
 
             if profile.data:
                 recipient_email = profile.data["email"]
-                print(f"[notifier] Sending to {recipient_email}")
+                print(f"[notifier] Recipient from Supabase: {recipient_email}")
+            else:
+                print(f"[notifier] No profile for user_id: {user_id}")
 
         except Exception as e:
-            print(f"[notifier] Could not fetch user email: {e}")
+            print(f"[notifier] Profile fetch failed: {e}")
+
+    # Fallback to env var if Supabase fetch failed
+    if not recipient_email:
+        print("[notifier] Falling back to GMAIL_RECIPIENT env var")
+        recipient_email = os.getenv("GMAIL_RECIPIENT")
+
+    if not recipient_email:
+        print("[notifier] No recipient — cannot send email")
+        return {"email_sent": False}
 
     success = send_daily_brief(brief, recipient_email=recipient_email)
     return {"email_sent": success}

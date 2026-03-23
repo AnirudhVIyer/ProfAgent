@@ -183,7 +183,7 @@ def _build_html(brief) -> str:
 # side effects go in delivery services, reasoning goes in agents.
 # ------------------------------------------------------------
 
-def send_daily_brief(brief,recipient_email) -> bool:
+def send_daily_brief(brief, recipient_email: str = None) -> bool:
     """
     Sends the daily brief email via Gmail SMTP.
     Returns True on success, False on failure.
@@ -199,7 +199,8 @@ def send_daily_brief(brief,recipient_email) -> bool:
     
 
     if not all([sender, password, recipient]):
-        print("[Gmail] Missing credentials in .env — skipping email")
+        print("[Gmail] Missing credentials or recipient — skipping email")
+        print(f"[Gmail] sender={bool(sender)} password={bool(password)} recipient={bool(recipient)}")
         return False
 
     try:

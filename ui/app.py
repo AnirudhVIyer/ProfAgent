@@ -36,6 +36,9 @@ from ui.onboarding import render_onboarding, needs_onboarding
 from ui.access_request import render_access_request_form
 from ui.admin_panel import render_admin_panel
 from dotenv import load_dotenv
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from memory.supabase_client import get_admin_client
 
 load_dotenv()
 
@@ -51,9 +54,7 @@ def _start_scheduler_delayed():
     import time
     time.sleep(10)
     try:
-        from apscheduler.schedulers.background import BackgroundScheduler
-        from apscheduler.triggers.cron import CronTrigger
-        from memory.supabase_client import get_admin_client
+
 
         scheduler = BackgroundScheduler()
 
@@ -118,21 +119,6 @@ st.set_page_config(
 # Session state initialization
 # ------------------------------------------------------------
 
-def init_session_state():
-    if "chat_active" not in st.session_state:
-        st.session_state.chat_active = False
-    if "chat_state" not in st.session_state:
-        st.session_state.chat_state = None
-    if "chat_graph" not in st.session_state:
-        st.session_state.chat_graph = build_chat_pipeline()
-    if "messages_display" not in st.session_state:
-        st.session_state.messages_display = []
-    if "current_topic" not in st.session_state:
-        st.session_state.current_topic = None
-    if "last_pipeline_result" not in st.session_state:
-        st.session_state.last_pipeline_result = None
-    if "current_page" not in st.session_state:
-        st.session_state.current_page = "Dashboard"
 
 def init_session_state(user: "UserContext" = None):
     if "chat_active" not in st.session_state:
@@ -148,41 +134,74 @@ def init_session_state(user: "UserContext" = None):
     if "current_page" not in st.session_state:
         st.session_state.current_page = "Dashboard"
 
-    # Load today's brief from Supabase on first render
-    # So brief survives page refreshes
-    if "last_pipeline_result" not in st.session_state and user:
-        from memory.knowledge_store import get_latest_brief
-        saved_brief = get_latest_brief(user_id=user.user_id)
-        if saved_brief:
-            # Reconstruct a brief-like object the UI can render
-            st.session_state.last_pipeline_result = {
-                "daily_brief": _dict_to_brief(saved_brief),
-                "chosen_topic": None
-            }
+    # Load latest brief from Supabase on every render
+    # so dashboard always shows current brief after login
+    # or page refresh
+    if user:
+        _load_latest_brief(user.user_id)
     elif "last_pipeline_result" not in st.session_state:
         st.session_state.last_pipeline_result = None
 
 
-def _dict_to_brief(data: dict):
+def _load_latest_brief(user_id: str) -> None:
     """
-    Converts a Supabase daily_briefs row back into
-    a DailyBrief-like object the UI can render.
+    Loads latest brief from Supabase into session state.
+
+    Always loads from Supabase — never returns early
+    from cache. This ensures the dashboard always shows
+    the most recent brief even after page refresh.
+
+    Only skips if pipeline was just run this session
+    (last_pipeline_result has email_sent flag set by
+    the pipeline run, not by this loader).
     """
-    from agents.briefing import DailyBrief
     try:
-        return DailyBrief(
-            topic_title=data.get("topic_title", ""),
-            explanation=data.get("explanation", ""),
-            connections=data.get("connections", []),
-            why_it_matters=data.get("why_it_matters", ""),
-            discussion_questions=data.get("discussion_questions", []),
-            email_hook=data.get("email_hook", ""),
-            tldr=data.get("tldr", ""),
-            source_url=data.get("source_url", "")
+        from memory.knowledge_store import get_latest_brief
+        from agents.briefing import DailyBrief
+
+        # Skip reload if pipeline was just run this session
+        # Pipeline sets email_sent — loader never does
+        existing = st.session_state.get("last_pipeline_result")
+        if existing and existing.get("email_sent") is not None:
+            # Pipeline ran this session — trust that result
+            return
+
+        saved_brief = get_latest_brief(user_id=user_id)
+
+        if not saved_brief:
+            st.session_state.last_pipeline_result = None
+            return
+
+        brief_obj = DailyBrief(
+            topic_title=saved_brief.get("topic_title", ""),
+            explanation=saved_brief.get("explanation", ""),
+            connections=saved_brief.get("connections") or [],
+            why_it_matters=saved_brief.get("why_it_matters", ""),
+            discussion_questions=saved_brief.get(
+                "discussion_questions"
+            ) or [],
+            email_hook=saved_brief.get("email_hook", ""),
+            tldr=saved_brief.get("tldr", ""),
+            source_url=saved_brief.get("source_url", "")
         )
+
+        st.session_state.last_pipeline_result = {
+            "daily_brief": brief_obj,
+            "chosen_topic": None,
+            "brief_date": saved_brief.get("date", ""),
+            # No email_sent key here — distinguishes
+            # Supabase-loaded briefs from pipeline-run briefs
+        }
+
+        print(
+            f"[UI] Brief loaded from Supabase: "
+            f"{brief_obj.topic_title}"
+        )
+
     except Exception as e:
-        print(f"[UI] Brief reconstruction failed: {e}")
-        return None
+        print(f"[UI] _load_latest_brief failed: {e}")
+        if "last_pipeline_result" not in st.session_state:
+            st.session_state.last_pipeline_result = None
 
 # ------------------------------------------------------------
 # Sidebar
@@ -727,18 +746,21 @@ def _end_session(user: UserContext):
 # Main
 # ------------------------------------------------------------
 
-def main():
-    init_session_state()
 
+def main():
+    # Auth gate first — before init_session_state
+    # because init needs the user object
     user = require_auth()
     if not user:
         st.stop()
+
+    # Now init with user so brief loads from Supabase
+    init_session_state(user)
 
     if needs_onboarding(user.user_id):
         render_onboarding(user)
         st.stop()
 
-    init_session_state(user)
     page = render_sidebar(user)
 
     if page == "Dashboard":
@@ -749,8 +771,6 @@ def main():
         render_admin_panel()
     elif page == "Admin Panel" and not user.is_admin:
         st.error("Access denied")
-
-
 
 if __name__ == "__main__":
     main()
