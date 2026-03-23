@@ -39,10 +39,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-try:
-    import main  # noqa — starts scheduler as side effect
-except Exception as e:
-    print(f"[UI] Scheduler start failed: {e}")
+# try:
+#     import main  # noqa — starts scheduler as side effect
+# except Exception as e:
+#     print(f"[UI] Scheduler start failed: {e}")
 
 # ------------------------------------------------------------
 # Page config
